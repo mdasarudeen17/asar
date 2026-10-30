@@ -1532,7 +1532,11 @@
         desynchronized: true
       });
 
-      const frameUrl = (index) =>
+      // Folders searched for frames and images: repo root first, then the uploaded set folders
+      const FOLDERS = ['', 'set1/', 'set2.0/', 'set2/', 'set3/'];
+      let preferredFolder = 0;
+
+      const frameName = (index) =>
         `ezgif-frame-${String(index + 1).padStart(3, '0')}.jpg?v=4`;
 
       // Preloaded GPU Bitmaps array
@@ -1584,9 +1588,8 @@
       }
 
       // Universal frame loader (supports http/https createImageBitmap + file:// Image fallback)
-      function loadFrameImage(idx) {
+      function tryLoadUrl(url) {
         return new Promise((resolve) => {
-          const url = frameUrl(idx);
           if (window.location.protocol.startsWith('http') && window.createImageBitmap) {
             fetch(url)
               .then((res) => {
@@ -1595,11 +1598,27 @@
               })
               .then((blob) => createImageBitmap(blob, { resizeQuality: 'high' }))
               .then((bmp) => resolve(bmp))
-              .catch(() => loadFallback(url, resolve));
+              .catch(() => resolve(null));
           } else {
             loadFallback(url, resolve);
           }
         });
+      }
+
+      // Looks for the frame in the last folder that worked first, then in the others
+      async function loadFrameImage(idx) {
+        const order = [preferredFolder];
+        for (let i = 0; i < FOLDERS.length; i++) {
+          if (i !== preferredFolder) order.push(i);
+        }
+        for (const f of order) {
+          const bmp = await tryLoadUrl(FOLDERS[f] + frameName(idx));
+          if (bmp) {
+            preferredFolder = f;
+            return bmp;
+          }
+        }
+        return null;
       }
 
       function loadFallback(url, resolve) {
@@ -1730,6 +1749,24 @@
 
       preloadAllFrames();
       requestAnimationFrame(renderLoop);
+
+      // Project images: if one is not in the root, try the set folders
+      document.querySelectorAll('.portfolio-card').forEach((card) => {
+        const img = card.querySelector('img.card-img');
+        const link = card.querySelector('a.card-img-wrap');
+        if (!img || !link) return;
+        const name = link.getAttribute('href');
+        let folderIndex = 0;
+        img.addEventListener('error', () => {
+          folderIndex++;
+          if (folderIndex < FOLDERS.length) {
+            img.src = FOLDERS[folderIndex] + name;
+          }
+        });
+        img.addEventListener('load', () => {
+          link.setAttribute('href', img.getAttribute('src'));
+        });
+      });
 
       // Contact form submit handler
       const contactForm = document.getElementById('contact-form');
